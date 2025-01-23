@@ -1,6 +1,6 @@
 #include "thread_pool.h"
 
-void *mytask(void *arg) //模拟任务
+void *mytask(void *arg)
 {
 	int n = (int)arg;
 
@@ -15,7 +15,7 @@ void *mytask(void *arg) //模拟任务
 	return NULL;
 }
 
-void *count_time(void *arg) //计时
+void *count_time(void *arg)
 {
 	int i = 0;
 	while(1)

@@ -41,8 +41,6 @@ void *routine(void *arg)
 		// 1, no task, and is NOT shutting down, then wait
 		while(pool->waiting_tasks == 0 && !pool->shutdown)
 		{
-			//    进入睡眠时，会自动对m解锁
-    		//    退出睡眠时，会自动对m加锁
 			pthread_cond_wait(&pool->cond, &pool->lock);
 		}
 
@@ -54,35 +52,33 @@ void *routine(void *arg)
 		}
 
 		// 3, have some task, then consume it
-		p = pool->task_list->next; //找到任务节点
-		pool->task_list->next = p->next; //剩余的任务节点
-		pool->waiting_tasks--; //任务量-1
+		p = pool->task_list->next;
+		pool->task_list->next = p->next;
+		pool->waiting_tasks--;
 
 		//================================================//
 		pthread_mutex_unlock(&pool->lock);
 		pthread_cleanup_pop(0);
 		//================================================//
 
-		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL); //禁用取消功能，以免这个线程被其他线程取消
-		(p->do_task)(p->arg); //执行任务
-		pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL); //执行完之后重新启用取消功能
+		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+		(p->do_task)(p->arg);
+		pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
 
-		free(p); //执行完任务之后释放对应节点的内存
+		free(p);
 	}
 
 	pthread_exit(NULL);
 }
 
-//pool：线程池指针，threads_number：初始活跃线程个数（大于等于1）
 bool init_pool(thread_pool *pool, unsigned int threads_number)
 {
-	/*****************************************************  初始化线程池 *****************************************************/
-	pthread_mutex_init(&pool->lock, NULL); //初始化互斥锁
-	pthread_cond_init(&pool->cond, NULL); //初始化条件量
+	pthread_mutex_init(&pool->lock, NULL);
+	pthread_cond_init(&pool->cond, NULL);
 
-	pool->shutdown = false; //表示线程池当前处于工作状态
-	pool->task_list = malloc(sizeof(struct task));  //为任务链表分配内存。链表用于存储待处理的任务
-	pool->tids = malloc(sizeof(pthread_t) * MAX_ACTIVE_THREADS); //为线程 ID 数组分配内存
+	pool->shutdown = false;
+	pool->task_list = malloc(sizeof(struct task));
+	pool->tids = malloc(sizeof(pthread_t) * MAX_ACTIVE_THREADS);
 
 	if(pool->task_list == NULL || pool->tids == NULL)
 	{
@@ -90,15 +86,12 @@ bool init_pool(thread_pool *pool, unsigned int threads_number)
 		return false;
 	}
 
-	pool->task_list->next = NULL; //设置任务链表的起始节点为 NULL，表示当前任务队列为空。
+	pool->task_list->next = NULL;
 
-	pool->max_waiting_tasks = MAX_WAITING_TASKS; //设置任务队列的最大容量为 MAX_WAITING_TASKS
-	pool->waiting_tasks = 0; //设置当前等待处理的任务数量为 0
-	pool->active_threads = threads_number; //记录线程池中工作线程的数量。
+	pool->max_waiting_tasks = MAX_WAITING_TASKS;
+	pool->waiting_tasks = 0;
+	pool->active_threads = threads_number;
 
-	/************************************************************************************************************************/
-
-	/*****************************************************  创建活跃线程 *****************************************************/
 	int i;
 	for(i=0; i<pool->active_threads; i++)
 	{
@@ -115,16 +108,14 @@ bool init_pool(thread_pool *pool, unsigned int threads_number)
 			i, (unsigned)pool->tids[i]);
 		#endif
 	}
-	/************************************************************************************************************************/
 
 	return true;
 }
 
-//pool：线程池指针，do_task：投送至线程池的执行历程，arg：执行历程do_task的参数
 bool add_task(thread_pool *pool,
 	      void *(*do_task)(void *arg), void *arg)
 {
-	struct task *new_task = malloc(sizeof(struct task)); //创建新的任务节点
+	struct task *new_task = malloc(sizeof(struct task));
 	if(new_task == NULL)
 	{
 		perror("allocate memory error");
@@ -135,10 +126,10 @@ bool add_task(thread_pool *pool,
 	new_task->next = NULL;
 
 	//============ LOCK =============//
-	pthread_mutex_lock(&pool->lock); //加锁保护线程池的任务队列，防止多个线程同时操作任务队列导致竞争条件
+	pthread_mutex_lock(&pool->lock);
 	//===============================//
 
-	if(pool->waiting_tasks >= MAX_WAITING_TASKS) //任务量达到MAX_WAITING_TASKS，不能再加任务
+	if(pool->waiting_tasks >= MAX_WAITING_TASKS)
 	{
 		pthread_mutex_unlock(&pool->lock);
 
@@ -149,11 +140,11 @@ bool add_task(thread_pool *pool,
 	}
 	
 	struct task *tmp = pool->task_list;
-	while(tmp->next != NULL) //找到任务链表中最后一个任务节点
+	while(tmp->next != NULL)
 		tmp = tmp->next;
 
-	tmp->next = new_task; //最后一个任务节点后添加新的任务节点
-	pool->waiting_tasks++; //同时待处理任务数+1
+	tmp->next = new_task;
+	pool->waiting_tasks++;
 
 	//=========== UNLOCK ============//
 	pthread_mutex_unlock(&pool->lock);
@@ -164,11 +155,10 @@ bool add_task(thread_pool *pool,
 		(unsigned)pthread_self(), __FUNCTION__);
 	#endif
 
-	pthread_cond_signal(&pool->cond); //唤醒第一个进入条件量睡眠的线程
+	pthread_cond_signal(&pool->cond);
 	return true;
 }
 
-//pool：线程池指针，addtional_threads：添加线程的个数
 int add_thread(thread_pool *pool, unsigned additional_threads)
 {
 	if(additional_threads == 0)
@@ -203,22 +193,21 @@ int add_thread(thread_pool *pool, unsigned additional_threads)
 	}
 
 	pool->active_threads += actual_increment;
-	return actual_increment; //实际添加的线程个数
+	return actual_increment;
 }
 
-//pool：线程池指针，removing_threads：要删除的线程个数，返回线程池剩余的线程个数
 int remove_thread(thread_pool *pool, unsigned int removing_threads)
 {
 	if(removing_threads == 0)
 		return pool->active_threads;
 
 	int remaining_threads = pool->active_threads - removing_threads;
-	remaining_threads = remaining_threads > 0 ? remaining_threads : 1; //至少要保留一个线程
+	remaining_threads = remaining_threads > 0 ? remaining_threads : 1;
 
 	int i;
 	for(i=pool->active_threads-1; i>remaining_threads-1; i--)
 	{
-		errno = pthread_cancel(pool->tids[i]); //删除线程
+		errno = pthread_cancel(pool->tids[i]);
 
 		if(errno != 0)
 			break;
@@ -261,7 +250,7 @@ bool destroy_pool(thread_pool *pool)
 	}
 
 	// 3, free memories
-	free(pool->task_list); //全部的任务节点在之后完之后，对应的内存就已经释放了
+	free(pool->task_list);
 	free(pool->tids);
 	free(pool);
 
